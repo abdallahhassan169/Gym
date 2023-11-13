@@ -5,8 +5,6 @@ import pool from "./db/index.js";
 import { join, dirname, extname } from "path";
 import fs from "fs";
 import QRCode from "qrcode";
-import path from "path";
-import { stringify } from "querystring";
 import multer from "multer";
 import { fileURLToPath } from "url";
 
@@ -198,11 +196,11 @@ app.get("/users_log", async (req, res) => {
       select u.name,u.phone, ul.* from "Gym"."users_log" ul join
        "Gym"."users" u on u.id = ul.user_id  
        where u.name like concat('%',cast(($1) as text) ,'%')
-        and (cast (time as date) ) = cast(($2) as date)
+        and (cast (time as date) ) between cast(($2) as date) and cast(($5) as date)
         
-        order by id desc
+        order by id desc limit ($3) offset ($4)
   ; `,
-      [query, req.query.date]
+      [query, req.query.from, req.query.limit, req.query.offset, req.query.to]
     );
 
     //mapping and cast the date
@@ -225,9 +223,9 @@ app.get("/product_prices", async (req, res) => {
         where
        pr.name like concat('%',cast(($1)as text),'%')
       
-        order by pp.id desc limit 10
+        order by pp.id desc limit ($2) offset ($3)   
   ; `,
-      [query]
+      [query, req.query.limit, req.query.offset]
     );
 
     //mapping and cast the date
@@ -249,9 +247,9 @@ app.get("/products", async (req, res) => {
       select * from "Gym"."Products"  where
        name like concat('%',cast(($1)as text),'%')
       
-        order by id desc limit 10
+        order by id desc limit ($2) offset ($3)
   ; `,
-      [query]
+      [query, req.query.limit, req.query.offset]
     );
 
     //mapping and cast the date
@@ -274,9 +272,10 @@ app.get("/subs_costs", async (req, res) => {
       `
       select * from "Gym"."Finanace" where id_type =($2)
       and (cast(date as text) like concat('%',cast(($1) as text),'%')
-       or client_name like concat('%',($1),'%') or description like concat('%',($1),'%'))  order by id desc limit 10
+       or client_name like concat('%',($1),'%') or description like concat('%',($1),'%'))  order by id desc limit ($3)
+       offset ($4)
   ; `,
-      [query, type]
+      [query, type, req.query.limit, req.query.offset]
     );
 
     //mapping and cast the date
@@ -320,13 +319,79 @@ full outer join
   cast(($2) as date  ) and  cast( ($3) as date  )
    GROUP BY DATE_TRUNC(($1), date )) AS dev_cost
    ON cost.date_trunc = dev_cost.date_trunc
-order by 1 desc ;
+order by 1 desc limit ($4) offset ($5) ;
   ; `,
-      [type, from, to]
+      [type, from, to, req.query.limit, req.query.offset]
     );
     rows.map((el, idx) => {
       el["id"] = idx;
     });
+    //mapping and cast the date
+
+    res.json(rows);
+  } catch (error) {
+    console.error("Error fetching visit_visitors data:", error);
+    res.status(500).send("Server error");
+  }
+});
+
+app.get("/product_reports", async (req, res) => {
+  try {
+    console.log(" reports data...");
+    const type = req.query.type ?? null;
+    const from = req.query.from;
+    const to = req.query.to;
+
+    //selecting data
+    const { rows } = await pool.query(
+      `
+SELECT  COALESCE(sub.date_trunc ) as date
+,coalesce(sub.sum,0) as sum 
+
+FROM
+  (SELECT DATE_TRUNC(($1), date) AS date_trunc, SUM(total_price) AS sum
+   FROM "Gym"."Product_Transactions" where  date between
+  cast(($2) as date  ) and  cast( ($3) as date  )
+   GROUP BY DATE_TRUNC(($1), date)  ) AS sub 
+
+order by 1 desc limit ($4) offset($5) ;
+  ; `,
+      [type, from, to, req.query.limit, req.query.offset]
+    );
+    rows.map((el, idx) => {
+      el["id"] = idx;
+    });
+    //mapping and cast the date
+
+    res.json(rows);
+  } catch (error) {
+    console.error("Error fetching visit_visitors data:", error);
+    res.status(500).send("Server error");
+  }
+});
+
+app.get("/product_transactions", async (req, res) => {
+  try {
+    console.log(" reports data...");
+    const from = req.query.from;
+    const to = req.query.to;
+
+    //selecting data
+    const { rows } = await pool.query(
+      `
+
+
+SELECT t.* , p.name
+   FROM "Gym"."Product_Transactions" t
+   left join "Gym"."Product_Price" pp on t.product_price_id = pp.id
+  left join "Gym"."Products" p on pp.product_id = p.id
+     where  t.date between
+  cast(($1) as date  ) and  cast( ($2) as date  )
+order by t.id desc limit ($3) offset($4) ;
+  ; `,
+      [from, to, req.query.limit, req.query.offset]
+    );
+
     //mapping and cast the date
 
     res.json(rows);
@@ -399,9 +464,13 @@ app.post("/add_product_transaction", async (req, res) => {
     const { rows } = await pool.query(
       `   
 INSERT INTO "Gym"."Product_Transactions"(
-	 qty , product_price_id) VALUES ($1, $2)
+	 qty , product_price_id , total_price , date ) VALUES ($1, $2 , $3 , CURRENT_TIMESTAMP)
     returning id `,
-      [req.body.qty, req.body.product_price_id]
+      [
+        req.body.qty,
+        req.body.product_price_id,
+        req.body.qty * req.body.unit_price,
+      ]
     );
     const { upd } = await pool.query(
       `   
