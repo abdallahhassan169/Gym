@@ -125,14 +125,14 @@ app.post("/scan", async (req, res) => {
   try {
     const date = new Date();
     const code = req.body.code;
-    console.log(code);
+    console.log(code, "codeeee");
     const user_id = req.query.user_id;
     //selecting data
 
     const { rows } = await pool.query(
       `   
 select * from "Gym".users 
- where qr_code = ($1)
+ where qr_code_name = ($1)
  `,
       [code]
     );
@@ -147,7 +147,7 @@ select * from "Gym".users
         `   
           INSERT INTO "Gym".users_log(
 	 user_id, "time")
-	VALUES ((select id from "Gym".users where qr_code =($1) ) , (CURRENT_TIMESTAMP ))
+	VALUES ((select id from "Gym".users where qr_code_name =($1) ) , (CURRENT_TIMESTAMP ))
  
  `,
         [code]
@@ -375,7 +375,7 @@ app.get("/product_reports", async (req, res) => {
     //selecting data
     const { rows } = await pool.query(
       `
-SELECT  COALESCE(sub.date_trunc ) as date
+SELECT  COALESCE(sub.date_trunc , cost_sum.date_trunc ) as date
 ,coalesce(sub.sum,0) as profit , coalesce(cost_sum.shipment_sum,0) as cost 
 ,(coalesce(sub.sum,0)  - coalesce(cost_sum.shipment_sum,0) ) as total
 FROM
@@ -383,7 +383,8 @@ FROM
    FROM "Gym"."Product_Transactions" where  date between
   cast(($2) as date  ) and  cast( ($3) as date  ) and type = 2
    GROUP BY DATE_TRUNC(($1), date)  ) AS sub
-   left join (SELECT DATE_TRUNC(($1), date) AS date_trunc, SUM(total_price) AS shipment_sum
+
+   full outer join  (SELECT DATE_TRUNC(($1), date) AS date_trunc, SUM(total_price) AS shipment_sum
    FROM "Gym"."Product_Transactions" where  date between
   cast(($2) as date  ) and  cast( ($3) as date  ) and type = 1
    GROUP BY DATE_TRUNC(($1), date)  ) as cost_sum
@@ -437,7 +438,7 @@ order by t.id desc limit ($3) offset($4) ;
 app.post("/add_user", upload.single("image"), async (req, res) => {
   try {
     console.log(req.body.data, "jsonData");
-
+    const date = Date.now();
     const imageFile = req?.file ?? null;
     const jsonData = JSON.parse(req.body.data);
     const dataString = JSON.stringify(jsonData);
@@ -449,7 +450,7 @@ app.post("/add_user", upload.single("image"), async (req, res) => {
       jsonData.birth_day,
       jsonData.id_user_type,
       dataString,
-      `${dataString}.png`,
+      `${date}`,
       jsonData.id_sport,
       0,
     ];
@@ -476,14 +477,7 @@ INSERT INTO "Gym".users(
       data
     );
 
-    res.json("inserted succefully");
-    console.log(data);
     //selecting data
-
-    const qrCodeImage = await QRCode.toFile(
-      `qrs/${req.body.email}.png`,
-      dataString
-    );
 
     //mapping and cast the date
 
@@ -562,15 +556,9 @@ app.post("/add_shipment", async (req, res) => {
       `   
 INSERT INTO "Gym"."Product_Transactions"(
 	 qty, product_id, total_price, date, type)
-	VALUES ( $1, $2, $3, $4, $5)
+	VALUES ( $1, $2, $3, current_timestamp, $4)
     returning id; `,
-      [
-        req.body.qty,
-        req.body.product_id,
-        req.body.total_price,
-        date.toISOString().slice(0, 18),
-        1,
-      ]
+      [req.body.qty, req.body.product_id, req.body.total_price, 1]
     );
     console.log(rows);
     if (rows[0].id) {
