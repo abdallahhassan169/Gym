@@ -6,7 +6,8 @@ const pool = new pg.Pool({
   database: process.env.PGDATABASE,
   password: process.env.PGPASSWORD,
   schema: process.env.SCHEMA,
-  port: 5432,
+  port: 6543,
+  ssl: { rejectUnauthorized: false },
 });
 
 export default pool;

@@ -79,6 +79,6 @@ app.post("/add_cost", cost_upload.single("image"), add_cost);
 app.get("/bills", bills);
 
 app.get("/cost_data", cost_data);
-app.listen(3012, () => {
+app.listen(3013, () => {
   console.log(`server is up on port ${3012}`);
 });
